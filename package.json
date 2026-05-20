@@ -1,0 +1,16 @@
+{
+  "name": "chancams",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chans Cams — cinema camera and equipment rental site (static)",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "serve-handler": "^6.1.6"
+  }
+}
