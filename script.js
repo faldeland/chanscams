@@ -27,7 +27,6 @@
   };
 
   const STORAGE_CART       = "chancams.cart.v2";       // { id: { qty, start?, end? } }
-  const STORAGE_CART_DAYS  = "chancams.cartDays.v1";
 
   /* ---------- Year ---------- */
   $("#year") && ($("#year").textContent = new Date().getFullYear());
@@ -69,7 +68,6 @@
   let activeCategory = "all";
   let searchTerm = "";
   let cart = loadCart();   // { id: { qty: 1, start?: iso, end?: iso } }
-  let cartDays = loadCartDays();
 
   function loadCart() {
     try {
@@ -89,12 +87,20 @@
   function saveCart() {
     try { localStorage.setItem(STORAGE_CART, JSON.stringify(cart)); } catch {}
   }
-  function loadCartDays() {
-    const n = parseInt(localStorage.getItem(STORAGE_CART_DAYS) || "1", 10);
-    return Math.max(1, Math.min(60, isNaN(n) ? 1 : n));
-  }
-  function saveCartDays() {
-    try { localStorage.setItem(STORAGE_CART_DAYS, String(cartDays)); } catch {}
+
+  /** Open the per-item calendar and persist the picked dates into the cart. */
+  function pickDatesAndAddToCart(item) {
+    ChanCalendar.open(item, {
+      start: cart[item.id]?.start,
+      end:   cart[item.id]?.end,
+      onAdd: ({ start, end }) => {
+        cart[item.id] = { qty: 1, start, end };
+        saveCart();
+        renderCatalog();
+        renderCart();
+        openDrawer();
+      },
+    });
   }
 
   /* ---------- Filter chips ---------- */
@@ -230,29 +236,21 @@
     grid.querySelectorAll("[data-add]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.add;
-        if (cart[id]) delete cart[id];
-        else cart[id] = { qty: 1 };
-        saveCart();
-        renderCatalog();
-        renderCart();
+        if (cart[id]) {
+          delete cart[id];
+          saveCart();
+          renderCatalog();
+          renderCart();
+          return;
+        }
+        const item = EQUIPMENT.find((i) => i.id === id);
+        if (item) pickDatesAndAddToCart(item);
       });
     });
     grid.querySelectorAll("[data-dates]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const id = btn.dataset.dates;
-        const item = EQUIPMENT.find((i) => i.id === id);
-        if (!item) return;
-        ChanCalendar.open(item, {
-          start: cart[id]?.start,
-          end:   cart[id]?.end,
-          onAdd: ({ start, end }) => {
-            cart[id] = { qty: 1, start, end };
-            saveCart();
-            renderCatalog();
-            renderCart();
-            openDrawer();
-          },
-        });
+        const item = EQUIPMENT.find((i) => i.id === btn.dataset.dates);
+        if (item) pickDatesAndAddToCart(item);
       });
     });
   }
@@ -265,19 +263,15 @@
   const cartCount = $("#cartCount");
   const cartButton  = $("#cartButton");
   const cartClose = $("#cartClose");
-  const cartDaysInput = $("#cartDays");
-  const cartDaysLabel = $("#cartDaysLabel");
   const cartCheckout = $("#cartCheckout");
 
   const formCartList  = $("#formCartList");
   const formCartEmpty = $("#formCartEmpty");
 
-  cartDaysInput.value = cartDays;
-  cartDaysLabel.textContent = cartDays === 1 ? "day" : "days";
-
   /**
-   * Resolve a date range for a cart item. If the item has explicit dates,
-   * use those; otherwise use the global cartDays from today.
+   * Resolve a date range for a cart item. Every cart line is priced over its
+   * own pickup → return window; legacy entries without dates are surfaced as
+   * "needs dates" lines so the user can attach a range before checkout.
    */
   function resolveLine(itemId) {
     const entry = cart[itemId];
@@ -291,10 +285,7 @@
       const r = Engine.pricing.calculateRental(item, s, e);
       return { item, source: "dates", start: entry.start, end: entry.end, days: r.length, total: r.total, breakdown: r };
     }
-    const today = Engine.util.startOfDay(new Date());
-    const end = Engine.util.addDays(today, cartDays - 1);
-    const r = Engine.pricing.calculateRental(item, today, end);
-    return { item, source: "global", start: null, end: null, days: cartDays, total: r.total, breakdown: r };
+    return { item, source: "none", start: null, end: null, days: 0, total: 0, breakdown: null };
   }
 
   function totalCartPrice() {
@@ -302,6 +293,12 @@
       const line = resolveLine(id);
       return line ? sum + line.total : sum;
     }, 0);
+  }
+  function hasUndatedItems() {
+    return Object.keys(cart).some((id) => {
+      const line = resolveLine(id);
+      return line && line.source === "none";
+    });
   }
 
   function openDrawer() {
@@ -325,15 +322,6 @@
     if (e.key === "Escape" && drawer.classList.contains("is-open")) closeDrawer();
   });
 
-  cartDaysInput.addEventListener("input", () => {
-    const v = Math.max(1, Math.min(60, parseInt(cartDaysInput.value, 10) || 1));
-    cartDays = v;
-    saveCartDays();
-    cartDaysLabel.textContent = v === 1 ? "day" : "days";
-    renderCart();
-    renderCatalog();
-  });
-
   cartCheckout.addEventListener("click", () => {
     closeDrawer();
     setTimeout(() => {
@@ -352,14 +340,18 @@
       const line = resolveLine(id);
       if (!line) return;
       const { item, days, total, breakdown, source, start, end } = line;
-      const datesLabel = source === "dates"
-        ? `${fmtDateShort(start)} → ${fmtDateShort(end)} · ${days} ${days === 1 ? "day" : "days"}`
-        : `${days} ${days === 1 ? "day" : "days"} (global)`;
-      const savings = breakdown.savings > 0
+
+      const needsDates = source !== "dates";
+      const datesLabel = needsDates
+        ? `<span class="cart-line__needs">Pick a pickup → return date to price this item.</span>`
+        : `${fmtDateShort(start)} → ${fmtDateShort(end)} · ${days} ${days === 1 ? "day" : "days"}`;
+      const savings = breakdown && breakdown.savings > 0
         ? `<span class="cart-line__savings">Saves ${fmtMoney(breakdown.savings)}</span>`
         : "";
+      const totalDisplay = needsDates ? "—" : fmtMoney(total);
 
       const li = document.createElement("li");
+      if (needsDates) li.className = "cart-line--needs-dates";
       li.innerHTML = `
         <div class="cart-drawer__item">
           <div class="cart-line__head">
@@ -371,8 +363,8 @@
             ${savings}
           </div>
           <div class="cart-line__foot">
-            <strong>${fmtMoney(total)}</strong>
-            <button class="cart-line__edit" data-edit="${id}">${source === "dates" ? "Change dates" : "Pick dates"}</button>
+            <strong>${totalDisplay}</strong>
+            <button class="cart-line__edit" data-edit="${id}">${needsDates ? "Pick dates" : "Change dates"}</button>
           </div>
         </div>
       `;
@@ -390,25 +382,17 @@
     );
     cartList.querySelectorAll("[data-edit]").forEach((btn) =>
       btn.addEventListener("click", () => {
-        const id = btn.dataset.edit;
-        const item = EQUIPMENT.find((i) => i.id === id);
+        const item = EQUIPMENT.find((i) => i.id === btn.dataset.edit);
         if (!item) return;
         closeDrawer();
-        ChanCalendar.open(item, {
-          start: cart[id]?.start,
-          end:   cart[id]?.end,
-          onAdd: ({ start, end }) => {
-            cart[id] = { qty: 1, start, end };
-            saveCart();
-            renderCatalog();
-            renderCart();
-            openDrawer();
-          },
-        });
+        pickDatesAndAddToCart(item);
       })
     );
 
     cartTotal.textContent = fmtMoney(totalCartPrice());
+    const undated = hasUndatedItems();
+    cartCheckout.classList.toggle("is-disabled", undated);
+    cartCheckout.setAttribute("aria-disabled", String(undated));
 
     // Form-side cart preview
     if (ids.length === 0) {
@@ -423,8 +407,9 @@
         if (!line) return "";
         const dateLabel = line.source === "dates"
           ? `${fmtDateShort(line.start)} → ${fmtDateShort(line.end)}`
-          : `${line.days}d`;
-        return `<li><span>${line.item.name} <em class="muted small">${dateLabel}</em></span><span>${fmtMoney(line.total)}</span></li>`;
+          : `<em class="cart-line__needs-inline">needs dates</em>`;
+        const totalLabel = line.source === "dates" ? fmtMoney(line.total) : "—";
+        return `<li><span>${line.item.name} <em class="muted small">${dateLabel}</em></span><span>${totalLabel}</span></li>`;
       }).join("") +
       `<li style="margin-top:6px;border-top:1px solid var(--line-soft);padding-top:8px">
          <span><strong>Estimated subtotal</strong></span>
@@ -465,7 +450,6 @@
       const payload = {
         ...Object.fromEntries(data.entries()),
         cart,
-        cartDays,
         estimated: totalCartPrice(),
         lines: lines.map((l) => ({
           itemId: l.item.id, name: l.item.name, start: l.start, end: l.end,

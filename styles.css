@@ -847,27 +847,11 @@ input, textarea, select { font: inherit; color: inherit; }
   font-size: 17px;
   margin: 0;
 }
-.cart-drawer__days { padding: 18px 24px; border-bottom: 1px solid var(--line-soft); }
-.cart-drawer__days label {
-  font-size: 12px;
-  letter-spacing: .15em;
-  text-transform: uppercase;
-  color: var(--text-mute);
-  display: block;
-  margin-bottom: 10px;
+.cart-drawer__hint {
+  padding: 14px 24px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  margin: 0;
 }
-.cart-drawer__daysRow { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.cart-drawer__daysRow input {
-  width: 80px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  color: var(--text);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  font-size: 15px;
-  font-family: var(--font-display);
-}
-.cart-drawer__daysRow input:focus { outline: none; border-color: var(--accent); }
 
 .cart-drawer__list {
   flex: 1;
@@ -1019,6 +1003,39 @@ input, textarea, select { font: inherit; color: inherit; }
   transition: all .2s var(--ease);
 }
 .cart-line__edit:hover { color: var(--accent); border-color: var(--accent); }
+
+/* "Needs dates" callout for legacy cart lines that were added before the
+   calendar-required flow. */
+.cart-line__needs {
+  color: var(--accent);
+  font-weight: 500;
+}
+.cart-line--needs-dates .cart-drawer__item {
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+}
+.cart-line--needs-dates .cart-line__edit {
+  color: #1b1300;
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.cart-line--needs-dates .cart-line__edit:hover {
+  filter: brightness(1.08);
+}
+.cart-line__needs-inline {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Disabled checkout button (used while any cart line lacks dates). */
+.btn.is-disabled,
+[aria-disabled="true"].btn {
+  opacity: .45;
+  pointer-events: none;
+  cursor: not-allowed;
+}
 .cart-remove {
   color: var(--text-mute);
   font-size: 20px;
